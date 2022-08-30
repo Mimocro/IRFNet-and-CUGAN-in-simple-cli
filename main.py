@@ -26,7 +26,7 @@ def CUGAN(images, scale, upscaler):
     n = args.upscale / scale if args.upscale != 1 else 1
     for e in range(int(n)):
         for i in range(len(images)):
-            images[i] = upscaler(np.array(images[i], dtype='uint8')[:, :, ::-1].copy(), args.upscale_tile, 1, 1)[:, :, ::1].copy()
+            images[i] = upscaler(np.array(images[i], dtype='uint8')[:, :, ::-1].copy(), args.upscale_tile, 1, 1)
 
     return images
 
@@ -34,7 +34,7 @@ def read_frame(filename, n):
     cap = cv2.VideoCapture(filename)
     cap.set(cv2.CAP_PROP_POS_FRAMES, n)
     res, frame = cap.read()
-    frame = frame[:,:,::1].copy()
+    frame = frame[:,:,::-1].copy()
     return frame
 
 def v_info(filename):
@@ -132,13 +132,13 @@ with torch.no_grad():
 
 if args.input_type == 'images': 
     w, h = frame[0].shape[0], frame[0].shape[1]
-    fps = args.fps_multip * base_fps
+    fps = args.fps_multip * base_fps if 'interpolate' in args.mode else base_fps
     frames = [file for file in glob.glob('{0}\\*.{1}'.format("\\".join(norm_path.split("\\")), args.images_ext))]
     frames_count = len(frames) 
 else:
     w, h = read_frame(norm_path, 0).shape[0], read_frame(norm_path, 0).shape[1]
     fps, frames_count = v_info(norm_path)
-    fps = args.fps_multip * fps
+    fps = args.fps_multip * fps if 'interpolate' in args.mode else fps
 
 if args.output == None:
     output = norm_path+f' fps {fps} res {w}x{h}.mp4'
@@ -158,7 +158,7 @@ keyboard.add_hotkey(hotkey, handle_key_event, args=['down'])
 #keyboard.hook_key(hotkey, handle_key_event)
 
 
-for i in range(200):#frames_count):
+for i in range(30):#frames_count):
     try:
         if not running.is_set():
             print(f'Paused, press "{hotkey}" to continue')
@@ -221,4 +221,5 @@ else:
    audio = None
 os.system(f'ffmpeg -y -i "{output}" -i "{audio}" -c copy "{output}+audio.mp4"')
 os.remove(f'{output}')
+os.remove(f'{audio}')
 os.rename(f'{output}+audio.mp4', f'{output}')
