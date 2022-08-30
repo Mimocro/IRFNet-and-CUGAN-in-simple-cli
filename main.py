@@ -1,21 +1,21 @@
-
-import os, argparse, glob, gc, time, sys
-from time import time as ttime
-from subprocess import Popen, PIPE, DEVNULL
+import os, argparse, glob, gc
 import cv2
 import numpy as np
-from PIL import Image
 import torch
-import torchvision.transforms as F
 import keyboard
 import threading
+import torchvision.transforms as F
 from threading import Event
-from multiprocessing import Queue
-import multiprocessing
-from contextlib import redirect_stdout, redirect_stderr
+from PIL import Image
+from subprocess import Popen, PIPE
+
 from models.CUGAN import RealWaifuUpScaler
 from models.IFRNetLcastrated import Model as IFRNetL_Model
 from models.IFRNetcastrated import Model as IFRNet_Model
+
+
+
+
 
 
 
@@ -158,7 +158,7 @@ keyboard.add_hotkey(hotkey, handle_key_event, args=['down'])
 #keyboard.hook_key(hotkey, handle_key_event)
 
 
-for i in range(30):#frames_count):
+for i in range(frames_count):
     try:
         if not running.is_set():
             print(f'Paused, press "{hotkey}" to continue')
