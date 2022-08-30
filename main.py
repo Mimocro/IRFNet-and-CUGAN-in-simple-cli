@@ -26,8 +26,8 @@ def CUGAN(images, scale, upscaler):
     n = args.upscale / scale if args.upscale != 1 else 1
     for e in range(int(n)):
         for i in range(len(images)):
-            images[i] = upscaler(np.array(images[i], dtype='uint8')[:, :, ::-1].copy(), args.upscale_tile, 1, 1)
-
+            images[i] = upscaler(np.array(images[i], dtype='uint8')[:, :, ::-1].copy(), args.upscale_tile, 1, 1)[:, :, ::-1].copy()
+            
     return images
 
 def read_frame(filename, n):
