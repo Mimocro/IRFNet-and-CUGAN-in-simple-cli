@@ -1,6 +1,7 @@
 # IRFNet-and-CUGAN-in-simple-cli
 
 Simple python script to run [Real-CUGAN](https://github.com/bilibili/ailab/tree/main/Real-CUGAN) and [IFRNet](https://github.com/ltkong218/IFRNet) to upscale and interpolate video. Can be used separately.
+To use IFRNet Large model, download it from official drive https://www.dropbox.com/sh/hrewbpedd2cgdp3/AABfkcbmZp-_LCb21pHjEVHpa/checkpoints/IFRNet_large?dl=0&subfolder_nav_tracking=1 and paste in ```IFRNet_L``` folder.
 
 # Usage:
 
