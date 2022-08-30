@@ -13,7 +13,6 @@ from threading import Event
 from multiprocessing import Queue
 import multiprocessing
 from contextlib import redirect_stdout, redirect_stderr
-os.environ['OPENCV_LOG_LEVEL'] = "OFF"
 from models.CUGAN import RealWaifuUpScaler
 from models.IFRNetLcastrated import Model as IFRNetL_Model
 from models.IFRNetcastrated import Model as IFRNet_Model
@@ -89,11 +88,11 @@ parser.add_argument("--base_fps", default=23.97602397602398, help='Used only if 
 parser.add_argument("--images_ext", default='jpg', type=str)
 
 parser.add_argument("--upscaler_model", default='pro-conservative', choices=["pro-conservative", "pro-denoise3x", "pro-no-denoise"], help='Model type, right file will be choised by upscale factor')
-parser.add_argument("-m", "--mode", default="interpolate", choices=['upscale', 'interpolate', 'upscale-interpolate', 'interpolate-upscale'])
+parser.add_argument("-m", "--mode", default="interpolate-upscale", choices=['upscale', 'interpolate', 'upscale-interpolate', 'interpolate-upscale'])
 parser.add_argument("-u", "--upscale", default=2, type=int)
 parser.add_argument("--upscale_tile", default=3, type=int)
 
-parser.add_argument("--IFRNet_model", default='IFRNetL', choices=['IFRNet', 'IFRNetL'])
+parser.add_argument("--IFRNet_model", default='IFRNet', choices=['IFRNet', 'IFRNetL'])
 parser.add_argument("-f", "--fps_multip", default=2, type=int)
 
 args = parser.parse_args()
