@@ -5,6 +5,10 @@ To use IFRNet Large model, download it from official drive https://www.dropbox.c
 
 # Usage:
 
+To install all requirements do
+```pip install -r requirements.txt```
+
+
 ```
 usage: main.py [-h] [-i INPUT] [-o OUTPUT] [--input_type {video,images}] [--base_fps BASE_FPS]
                  [--images_ext IMAGES_EXT] [--upscaler_model {pro-conservative,pro-denoise3x,pro-no-denoise}]
