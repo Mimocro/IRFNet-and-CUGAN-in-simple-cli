@@ -179,7 +179,7 @@ for i in range(frames_count):
         if 'interpolate' not in args.mode:
             ims.append(Image.fromarray(img0_np))
         else:
-            if i+1 > frames_count:
+            if i+1 > frames_count-1:
                 ims.append(Image.fromarray(img0_np))
             else: 
                 img1_np = cv2.imread(frames[i+1], mode='RGB') if args.input_type == 'images' else read_frame(norm_path, i+1)
