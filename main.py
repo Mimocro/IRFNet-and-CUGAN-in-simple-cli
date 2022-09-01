@@ -1,4 +1,5 @@
 import os, argparse, glob, gc
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"]="video_codec;hevc_nvenc"
 import cv2
 import numpy as np
 import torch
@@ -17,35 +18,31 @@ from models.IFRNetcastrated import Model as IFRNet_Model
 
 
 
-
-
-
-
-#why so slow...
+#is thats faster?
 def CUGAN(images, scale, upscaler):
     n = args.upscale / scale if args.upscale != 1 else 1
     for e in range(int(n)):
         for i in range(len(images)):
-            images[i] = upscaler(np.array(images[i], dtype='uint8')[:, :, ::-1].copy(), args.upscale_tile, 1, 1)[:, :, ::-1].copy()
-            
+            images[i] = cv2.cvtColor(upscaler(cv2.cvtColor(np.array(images[i], dtype='uint8'), cv2.COLOR_RGB2BRG), args.upscale_tile, 1, 1), cv2.COLOR_BGR2RGB)  #[:, :, ::-1].copy() #[:, :, ::-1].copy() #input are brg, and then make it rgb back
     return images
 
-def read_frame(filename, n):
-    cap = cv2.VideoCapture(filename)
+def read_frame(cap, n):
+    #cap = cv2.VideoCapture(filename)
     cap.set(cv2.CAP_PROP_POS_FRAMES, n)
     res, frame = cap.read()
-    frame = frame[:,:,::-1].copy()
-    return frame
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) #frame[:,:,::-1].copy() #makes brg2rgb
+    return frame #in rgb
 
-def v_info(filename):
-    cap = cv2.VideoCapture(filename)
+
+def v_info(cap):
+    #cap = cv2.VideoCapture(filename)
     fps = cap.get(cv2.CAP_PROP_FPS) 
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     return(fps, frame_count)
 
 def IFRNet(img0_np, img1_np):
-    gc.collect()
-    torch.cuda.empty_cache() #good old CUDA OOM error walktrough
+    #gc.collect()
+    #torch.cuda.empty_cache() #good old CUDA OOM error walktrough
     
     with torch.no_grad():
         img0 = (torch.tensor(img0_np.transpose(2, 0, 1)).half() / 255.0).unsqueeze(0).cuda()
@@ -66,7 +63,7 @@ def IFRNet(img0_np, img1_np):
         for i in range(args.fps_multip-1):
             ims.append(F.ToPILImage()(imgt_pred[i]))
         ims.append(Image.fromarray(img1_np))
-    return ims
+    return ims #all frames in rgb
     
 def handle_key_event(event):
     gc.collect()
@@ -92,7 +89,7 @@ parser.add_argument("-m", "--mode", default="interpolate-upscale", choices=['ups
 parser.add_argument("-u", "--upscale", default=2, type=int)
 parser.add_argument("--upscale_tile", default=3, type=int)
 
-parser.add_argument("--IFRNet_model", default='IFRNet', choices=['IFRNet', 'IFRNetL'])
+parser.add_argument("--IFRNet_model", default='IFRNetL', choices=['IFRNet', 'IFRNetL'])
 parser.add_argument("-f", "--fps_multip", default=2, type=int)
 
 args = parser.parse_args()
@@ -136,8 +133,9 @@ if args.input_type == 'images':
     frames = [file for file in glob.glob('{0}\\*.{1}'.format("\\".join(norm_path.split("\\")), args.images_ext))]
     frames_count = len(frames) 
 else:
-    w, h = read_frame(norm_path, 0).shape[0], read_frame(norm_path, 0).shape[1]
-    fps, frames_count = v_info(norm_path)
+    cap_video = cv2.VideoCapture(norm_path, cv2.CAP_FFMPEG)
+    w, h = read_frame(cap_video, 0).shape[0], read_frame(cap_video, 0).shape[1]
+    fps, frames_count = v_info(cap_video)
     fps = args.fps_multip * fps if 'interpolate' in args.mode else fps
 
 if args.output == None:
@@ -165,7 +163,8 @@ for i in range(frames_count):
             running.wait()
             print(f'Continued, press "{hotkey}" to pause')
 
-        img0_np = cv2.imread(frames[i], mode='RGB') if args.input_type == 'images' else read_frame(norm_path, i)
+        img0_np = cv2.imread(frames[i], mode='RGB') if args.input_type == 'images' else read_frame(cap_video, i)
+
 
         
         ims = []
@@ -182,7 +181,7 @@ for i in range(frames_count):
             if i+1 > frames_count-1:
                 ims.append(Image.fromarray(img0_np))
             else: 
-                img1_np = cv2.imread(frames[i+1], mode='RGB') if args.input_type == 'images' else read_frame(norm_path, i+1)
+                img1_np = cv2.imread(frames[i+1], mode='RGB') if args.input_type == 'images' else read_frame(cap_video, i+1)
                 if 'upscale' in args.mode and args.mode[:7] == 'upscale':
                     img1_np = CUGAN([img1_np], clear_scale, upscaler)[0]
                 ims = IFRNet(img0_np, img1_np)
