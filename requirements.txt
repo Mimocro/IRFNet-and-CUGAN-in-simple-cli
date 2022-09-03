@@ -3,3 +3,4 @@ numpy
 torch
 keyboard
 torchvision
+pillow
