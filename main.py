@@ -1,5 +1,5 @@
 import os, argparse, glob, gc
-os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"]="video_codec;hevc_nvenc"
+#os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"]="video_codec;hevc_nvenc"
 import cv2
 import numpy as np
 import torch
@@ -9,23 +9,42 @@ import torchvision.transforms as F
 from threading import Event
 from PIL import Image
 from subprocess import Popen, PIPE
+from math import ceil
 
 from models.CUGAN import RealWaifuUpScaler
 from models.IFRNetLcastrated import Model as IFRNetL_Model
 from models.IFRNetcastrated import Model as IFRNet_Model
 
-
-
-
-
-#is thats faster?
 def CUGAN(images, scale, upscaler):
     n = args.upscale / scale if args.upscale != 1 else 1
     for e in range(int(n)):
         for i in range(len(images)):
-            images[i] = cv2.cvtColor(upscaler(cv2.cvtColor(np.array(images[i], dtype='uint8'), cv2.COLOR_RGB2BRG), args.upscale_tile, 1, 1), cv2.COLOR_BGR2RGB)  #[:, :, ::-1].copy() #[:, :, ::-1].copy() #input are brg, and then make it rgb back
+            images[i] = cv2.cvtColor(upscaler(cv2.cvtColor(np.array(images[i], dtype='uint8'), cv2.COLOR_RGB2BGR), args.upscale_tile, 1, 1), cv2.COLOR_BGR2RGB)  #[:, :, ::-1].copy() #[:, :, ::-1].copy() #input are brg, and then make it rgb back
     return images
 
+def skip_gpu_frames(decode_pipe, n_frames):
+    for i in range(n_frames):
+        _ = decode_pipe.stdout.read(w*h*3)
+    
+#thats fine
+last_i = None
+last_raw_frame = None
+def read_gpu(decode_pipe, i, w, h):
+    global last_i
+    global last_raw_frame
+    if i != last_i:
+        last_i = i
+        raw_frame = decode_pipe.stdout.read(w*h*3)
+        last_raw_frame = raw_frame
+        frame =  np.frombuffer(raw_frame, dtype='uint8')
+    else:
+        frame = np.frombuffer(last_raw_frame, dtype='uint8')
+    if frame.shape[0] == 0: return None
+    else: 
+        frame = frame.reshape((w, h, 3))
+        frame =  cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        return frame
+    
 def read_frame(cap, n):
     #cap = cv2.VideoCapture(filename)
     cap.set(cv2.CAP_PROP_POS_FRAMES, n)
@@ -47,7 +66,7 @@ def IFRNet(img0_np, img1_np):
     with torch.no_grad():
         img0 = (torch.tensor(img0_np.transpose(2, 0, 1)).half() / 255.0).unsqueeze(0).cuda()
         img1 = (torch.tensor(img1_np.transpose(2, 0, 1)).half() / 255.0).unsqueeze(0).cuda()
-        
+
         emba = []
         for i in range(1, args.fps_multip):
             emba.append(torch.tensor(i/args.fps_multip).view(1, 1, 1, 1).half().cuda())
@@ -80,22 +99,35 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-i", "--input", type=str, help='Path to input video file or dir with images (use --input_type to choose type of input)')
 parser.add_argument("-o", "--output", default = None)
 
+
+parser.add_argument("--no_segments", action='store_true', help='Do not process by segments')
+parser.add_argument("--segment_l", default = 60, type=int)
+parser.add_argument("-c", default = None, help='Path to txt file inside same folder as output, to continue process.')
+
+
 parser.add_argument("--input_type", default="video", choices=['video', 'images'])
 parser.add_argument("--base_fps", default=23.97602397602398, help='Used only if input is dir with images, by default it is 23.97602397602398 (equialent to 24000/1001)')
 parser.add_argument("--images_ext", default='jpg', type=str)
+parser.add_argument("--gpu_decode", action='store_true')
+parser.add_argument("--gpu_encode", action='store_true')
 
 parser.add_argument("--upscaler_model", default='pro-conservative', choices=["pro-conservative", "pro-denoise3x", "pro-no-denoise"], help='Model type, right file will be choised by upscale factor')
 parser.add_argument("-m", "--mode", default="interpolate-upscale", choices=['upscale', 'interpolate', 'upscale-interpolate', 'interpolate-upscale'])
 parser.add_argument("-u", "--upscale", default=2, type=int)
-parser.add_argument("--upscale_tile", default=3, type=int)
+parser.add_argument("--upscale_tile", default=4, type=int)
 
-parser.add_argument("--IFRNet_model", default='IFRNetL', choices=['IFRNet', 'IFRNetL'])
+parser.add_argument("--IFRNet_model", default='IFRNet', choices=['IFRNet', 'IFRNetL'])
 parser.add_argument("-f", "--fps_multip", default=2, type=int)
 
 args = parser.parse_args()
 
 
-norm_path = os.path.normpath(args.input)
+norm_path = os.path.normpath(os.path.abspath(args.input))
+if args.output == None:
+    output = norm_path+f' fps {fps} res {w}x{h}.mp4'
+else:
+    output = args.output
+output = os.path.normpath(os.path.abspath(output))
 
 clear_scale = 3 if args.upscale % 3 == 0 else 2
 upscale_model = f'./CUGAN/{args.upscaler_model}-up{clear_scale}x.pth'
@@ -108,10 +140,24 @@ if os.path.isdir(norm_path) and args.input_type == 'video':
 if not os.path.isfile(norm_path) and not os.path.isdir(norm_path):
     raise ValueError('No such file or dirrectory!')
     
-
-
-
-
+if args.c != None:
+    with open(os.path.normpath(args.c), 'r') as cfg:
+        a = cfg.readlines()
+        norm_path = a[0][:-2]
+        output = a[1][:-2]
+        args.input_type = a[2][:-2]
+        args.images_ext = a[3][:-2]
+        args.upscale = int(a[4])
+        args.fps_multip = int(a[5])
+        args.segment_l = int(a[6])
+        last = int(a[7])
+        
+else:
+    last = 0
+    with open(output+'.txt', 'w') as cfg:
+        for a in [norm_path, output, args.input_type, args.images_ext, args.upscale, args.fps_multip, args.segment_l, last]:
+            cfg.write(fr"{a}"+' \n')
+            
 device = "cuda"
 with torch.no_grad():
     if 'interpolate' in args.mode:
@@ -127,25 +173,32 @@ with torch.no_grad():
         upscaler = RealWaifuUpScaler(clear_scale, upscale_model, half=True, device=device)
         
 
+norm_path = os.path.normpath(os.path.abspath(norm_path))
+
+
+output = os.path.normpath(os.path.abspath(output))
+
 if args.input_type == 'images': 
     w, h = frame[0].shape[0], frame[0].shape[1]
-    fps = args.fps_multip * base_fps if 'interpolate' in args.mode else base_fps
+    fps_o = args.base_fps
+    fps = args.fps_multip * args.base_fps if 'interpolate' in args.mode else args.base_fps
     frames = [file for file in glob.glob('{0}\\*.{1}'.format("\\".join(norm_path.split("\\")), args.images_ext))]
     frames_count = len(frames) 
 else:
-    cap_video = cv2.VideoCapture(norm_path, cv2.CAP_FFMPEG)
+    cap_video = cv2.VideoCapture(norm_path)
+    if args.gpu_decode: 
+        decode_pipe = Popen(['ffmpeg', '-hide_banner' ,'-v', 'quiet', '-hwaccel', 'cuda', '-c:v', 'hevc_cuvid', '-i', norm_path, '-pix_fmt', 'bgr24', '-f', 'rawvideo', '-'], stdout=PIPE)
     w, h = read_frame(cap_video, 0).shape[0], read_frame(cap_video, 0).shape[1]
-    fps, frames_count = v_info(cap_video)
-    fps = args.fps_multip * fps if 'interpolate' in args.mode else fps
+    fps_o, frames_count = v_info(cap_video)
+    fps = args.fps_multip * fps_o if 'interpolate' in args.mode else fps_o
+    
+ffcmd = f'ffmpeg -hide_banner -v error -stats -y -f image2pipe -vcodec mjpeg -framerate {fps} -i - -c:v hevc_nvenc -rc vbr -cq 16 -preset slow -pix_fmt p010le -profile:v main10 -r {fps}' if args.gpu_encode else f'ffmpeg -hide_banner -v error -stats -y -f image2pipe -framerate {fps} -vcodec mjpeg -i - -c:v libx265 -crf 16 -preset slow -pix_fmt yuv420p10le -profile:v main10 -r {fps}'
+num_n =  ceil((frames_count/fps_o) / args.segment_l) if not args.no_segments else 1
+start = round(last / round(args.segment_l * fps_o)) if args.c != None else -1
 
-if args.output == None:
-    output = norm_path+f' fps {fps} res {w}x{h}.mp4'
-else:
-    output = args.output
-output = os.path.normpath(output)
-
-p = Popen(['ffmpeg', '-hide_banner' ,'-v', 'error', '-stats', '-y', '-f', 'image2pipe', '-vcodec', 'mjpeg', '-framerate', f'{fps}', '-i', '-', '-c:v', 'libx265', '-crf', '16', '-preset', 'slow', '-pix_fmt', 'yuv420p10le','-profile:v', 'main10', '-r', f'{fps}', f'{output}'], stdin=PIPE)
-
+if last != 0: last+=round(args.segment_l*fps_o)
+if start > 0 and args.gpu_decode:
+    skip_gpu_frames(decode_pipe, last)
 
 hotkey = 'ctrl+p'
 print(f'\n\n\n PRESS "{hotkey}" to pause execution!')
@@ -153,35 +206,51 @@ running = Event()
 running.set()
 keyboard.add_hotkey(hotkey, handle_key_event, args=['down'])
 
-#keyboard.hook_key(hotkey, handle_key_event)
 
+frames_count_o = frames_count
+frames_count = last + round(args.segment_l * fps_o)
+if frames_count_o < args.segment_l*fps_o or args.no_segments:
+    args.no_segments = True
+    
+    frames_count = frames_count_o
+for n in range(start+1, num_n):
+    #print(fr'{output+str(last)+output[-4:]}')
+    p = Popen(ffcmd.split(' ') + [output+str(last)+output[-4:]], stdin=PIPE)
+    if not args.no_segments:  print(f'Processing {n+1} segment of {num_n}')
 
-for i in range(frames_count):
-    try:
+    for i in range(last, frames_count):
         if not running.is_set():
             print(f'Paused, press "{hotkey}" to continue')
             running.wait()
             print(f'Continued, press "{hotkey}" to pause')
-
-        img0_np = cv2.imread(frames[i], mode='RGB') if args.input_type == 'images' else read_frame(cap_video, i)
-
-
-        
+        if args.input_type == 'images': 
+            img0_np = cv2.imread(frames[i], mode='RGB')
+        else: 
+            if not args.gpu_decode: 
+                img0_np = read_frame(cap_video, i)
+            else: 
+                img0_np = read_gpu(decode_pipe, i, w, h)
+         
         ims = []
-        #t0 = time.time()
+
+
+
         if 'upscale' in args.mode and args.mode[:7] == 'upscale':
             img0_np = CUGAN([img0_np], clear_scale, upscaler)[0]
-            
-        #total02 = t1-t0
-        #print('total02', total02)
-        
         if 'interpolate' not in args.mode:
             ims.append(Image.fromarray(img0_np))
         else:
-            if i+1 > frames_count-1:
+            if i+1 > frames_count:
                 ims.append(Image.fromarray(img0_np))
             else: 
-                img1_np = cv2.imread(frames[i+1], mode='RGB') if args.input_type == 'images' else read_frame(cap_video, i+1)
+                if args.input_type == 'images': 
+                    img1_np = cv2.imread(frames[i+1], mode='RGB')
+                else: 
+                    if not args.gpu_decode: 
+                        img1_np = read_frame(cap_video, i+1)
+                    else: 
+                        img1_np = read_gpu(decode_pipe, i+1, w, h)
+                        
                 if 'upscale' in args.mode and args.mode[:7] == 'upscale':
                     img1_np = CUGAN([img1_np], clear_scale, upscaler)[0]
                 ims = IFRNet(img0_np, img1_np)
@@ -194,31 +263,42 @@ for i in range(frames_count):
                         ims.insert(0, Image.fromarray(CUGAN([img0_np], clear_scale, upscaler)[0]))
                     else:
                         ims.insert(0, Image.fromarray(img0_np))
-            
-            
-            
+                        
         for frame in ims:
             frame.save(p.stdin, 'JPEG')
-            
-            
-    except KeyboardInterrupt:
-        print('Interrupted')
-        del model_ifrnet
-        try:
-            for frame in ims:
-                frame.save(p.stdin, 'JPEG')
-            break
-        except:
-            break
-p.stdin.close()
-p.wait()
-
-if args.input_type == 'video':
-   audio = f'{output}.mp4'
-   os.system(f'ffmpeg -y -hide_banner -i "{norm_path}" -vn -c copy -map 0:a "{audio}"')
+    p.stdin.close()
+    p.wait()
+    
+    lines = open(output+'.txt', 'r').readlines()
+    lines[-1] = str(last)
+    open(output+'.txt', 'w').writelines(lines)
+    last+=round(args.segment_l*fps_o)
+    frames_count = last + round(args.segment_l * fps_o) if frames_count_o - (args.segment_l*fps_o*n) > args.segment_l*fps_o else last + round(frames_count_o - (args.segment_l*fps_o*n)) #last segment wrong processing
+    
+if args.gpu_decode:
+    decode_pipe.stdout.close()
+    decode_pipe.wait()
+    
+if not args.no_segments:
+    last_segment = int(open(output+'.txt', 'r').readlines()[-1])
+    a = ''
+    for i in range(0, last_segment+round(args.segment_l*fps_o), round(args.segment_l*fps_o)):
+        a+= f"file '{output+str(i)+output[-4:]}'\n"
+    with open('vidlist.txt', 'w')as vl:
+        vl.write(a)
+    os.system(f'ffmpeg -y -hide_banner -f concat -safe 0 -i vidlist.txt -c copy {output}')
+    for i in range(0, last_segment+round(args.segment_l*fps_o), round(args.segment_l*fps_o)):
+        os.remove(f'{output+str(i)+output[-4:]}')
 else:
-   audio = None
-os.system(f'ffmpeg -y -i "{output}" -i "{audio}" -c copy "{output}+audio.mp4"')
+    os.rename(output+'0'+output[-4:], output)
+    
+if args.input_type == 'video':
+  audio = f'{output}_audio.mp4'
+  os.system(f'ffmpeg -y -hide_banner -i "{norm_path}" -vn -c copy -map 0:a "{audio}"')
+else:
+    audio = None
+os.system(f'ffmpeg -y -hide_banner -i "{output}" -i "{audio}" -c copy "{output}+audio.mp4"')
+os.rename(f'{output}+audio.mp4', f'{output}')
 os.remove(f'{output}')
 os.remove(f'{audio}')
-os.rename(f'{output}+audio.mp4', f'{output}')
+
