@@ -196,7 +196,7 @@ ffcmd = f'ffmpeg -hide_banner -v error -stats -y -f image2pipe -vcodec mjpeg -fr
 num_n =  ceil((frames_count/fps_o) / args.segment_l) if not args.no_segments else 1
 start = round(last / round(args.segment_l * fps_o)) if args.c != None else -1
 
-if last != 0: last+=round(args.segment_l*fps_o)
+if last != 0: last+=round(args.segment_l*fps_o)+1
 if start > 0 and args.gpu_decode:
     skip_gpu_frames(decode_pipe, last)
 
@@ -208,17 +208,20 @@ keyboard.add_hotkey(hotkey, handle_key_event, args=['down'])
 
 
 frames_count_o = frames_count
-frames_count = last + round(args.segment_l * fps_o)
+print(frames_count_o)
+frames_count = round(args.segment_l * fps_o) +last
 if frames_count_o < args.segment_l*fps_o or args.no_segments:
     args.no_segments = True
-    
     frames_count = frames_count_o
+    
 for n in range(start+1, num_n):
     #print(fr'{output+str(last)+output[-4:]}')
     p = Popen(ffcmd.split(' ') + [output+str(last)+output[-4:]], stdin=PIPE)
+    if frames_count_o - (args.segment_l*fps_o*n) < args.segment_l*fps_o:
+        frames_count = last + round(frames_count_o - (args.segment_l*fps_o*n)) #last segment wrong processing
     if not args.no_segments:  print(f'Processing {n+1} segment of {num_n}')
-
-    for i in range(last, frames_count):
+    print(frames_count)
+    for i in range(last, frames_count+1):
         if not running.is_set():
             print(f'Paused, press "{hotkey}" to continue')
             running.wait()
@@ -240,7 +243,7 @@ for n in range(start+1, num_n):
         if 'interpolate' not in args.mode:
             ims.append(Image.fromarray(img0_np))
         else:
-            if i+1 > frames_count:
+            if i+1 > frames_count-1:
                 ims.append(Image.fromarray(img0_np))
             else: 
                 if args.input_type == 'images': 
@@ -272,12 +275,13 @@ for n in range(start+1, num_n):
     lines = open(output+'.txt', 'r').readlines()
     lines[-1] = str(last)
     open(output+'.txt', 'w').writelines(lines)
-    last+=round(args.segment_l*fps_o)
-    frames_count = last + round(args.segment_l * fps_o) if frames_count_o - (args.segment_l*fps_o*n) > args.segment_l*fps_o else last + round(frames_count_o - (args.segment_l*fps_o*n)) #last segment wrong processing
+    last+=round(args.segment_l*fps_o)+1
+    frames_count = last + round(args.segment_l * fps_o) 
     
 if args.gpu_decode:
     decode_pipe.stdout.close()
     decode_pipe.wait()
+
     
 if not args.no_segments:
     last_segment = int(open(output+'.txt', 'r').readlines()[-1])
