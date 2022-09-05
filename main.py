@@ -114,7 +114,7 @@ parser.add_argument("--gpu_encode", action='store_true')
 parser.add_argument("--upscaler_model", default='pro-conservative', choices=["pro-conservative", "pro-denoise3x", "pro-no-denoise"], help='Model type, right file will be choised by upscale factor')
 parser.add_argument("-m", "--mode", default="interpolate-upscale", choices=['upscale', 'interpolate', 'upscale-interpolate', 'interpolate-upscale'])
 parser.add_argument("-u", "--upscale", default=2, type=int)
-parser.add_argument("--upscale_tile", default=4, type=int)
+parser.add_argument("--upscale_tile", default=3, type=int)
 
 parser.add_argument("--IFRNet_model", default='IFRNet', choices=['IFRNet', 'IFRNetL'])
 parser.add_argument("-f", "--fps_multip", default=2, type=int)
@@ -150,12 +150,12 @@ if args.c != None:
         args.upscale = int(a[4])
         args.fps_multip = int(a[5])
         args.segment_l = int(a[6])
-        last = int(a[7])
+        n = int(a[7])
         
 else:
-    last = 0
+    n = 0
     with open(output+'.txt', 'w') as cfg:
-        for a in [norm_path, output, args.input_type, args.images_ext, args.upscale, args.fps_multip, args.segment_l, last]:
+        for a in [norm_path, output, args.input_type, args.images_ext, args.upscale, args.fps_multip, args.segment_l, n]:
             cfg.write(fr"{a}"+' \n')
             
 device = "cuda"
@@ -194,9 +194,9 @@ else:
     
 ffcmd = f'ffmpeg -hide_banner -v error -stats -y -f image2pipe -vcodec mjpeg -framerate {fps} -i - -c:v hevc_nvenc -rc vbr -cq 16 -preset slow -pix_fmt p010le -profile:v main10 -r {fps}' if args.gpu_encode else f'ffmpeg -hide_banner -v error -stats -y -f image2pipe -framerate {fps} -vcodec mjpeg -i - -c:v libx265 -crf 16 -preset slow -pix_fmt yuv420p10le -profile:v main10 -r {fps}'
 num_n =  ceil((frames_count/fps_o) / args.segment_l) if not args.no_segments else 1
-start = round(last / round(args.segment_l * fps_o)) if args.c != None else -1
+start = n if args.c != None else 0
+last = round(n * args.segment_l * fps_o)
 
-if last != 0: last+=round(args.segment_l*fps_o)+1
 if start > 0 and args.gpu_decode:
     skip_gpu_frames(decode_pipe, last)
 
@@ -209,19 +209,21 @@ keyboard.add_hotkey(hotkey, handle_key_event, args=['down'])
 
 frames_count_o = frames_count
 print(frames_count_o)
-frames_count = round(args.segment_l * fps_o) +last
+
 if frames_count_o < args.segment_l*fps_o or args.no_segments:
     args.no_segments = True
     frames_count = frames_count_o
     
-for n in range(start+1, num_n):
-    #print(fr'{output+str(last)+output[-4:]}')
-    p = Popen(ffcmd.split(' ') + [output+str(last)+output[-4:]], stdin=PIPE)
-    if frames_count_o - (args.segment_l*fps_o*n) < args.segment_l*fps_o:
-        frames_count = last + round(frames_count_o - (args.segment_l*fps_o*n)) #last segment wrong processing
-    if not args.no_segments:  print(f'Processing {n+1} segment of {num_n}')
-    print(frames_count)
-    for i in range(last, frames_count+1):
+for nn in range(start, num_n):
+    #print(fr'{output+str(start)+output[-4:]}')
+    p = Popen(ffcmd.split(' ') + [output+str(nn)+output[-4:]], stdin=PIPE)
+    if frames_count_o - (args.segment_l*fps_o*nn) < args.segment_l*fps_o or last > frames_count_o:
+        frames_count = frames_count_o #last + round(frames_count_o - (args.segment_l*fps_o*n)) #last segment wrong processing
+    else:
+        frames_count = round(args.segment_l * fps_o) +last
+    if not args.no_segments:  print(f'Processing {nn+1} segment of {num_n}')
+    print(frames_count, last)
+    for i in range(last, frames_count):
         if not running.is_set():
             print(f'Paused, press "{hotkey}" to continue')
             running.wait()
@@ -244,7 +246,9 @@ for n in range(start+1, num_n):
             ims.append(Image.fromarray(img0_np))
         else:
             if i+1 > frames_count-1:
-                ims.append(Image.fromarray(img0_np))
+                if 'upscale' in args.mode: Image.fromarray(CUGAN[img0_np]).save(p.stdin, 'JPEG')
+                else: Image.fromarray(img0_np).save(p.stdin, 'JPEG')
+                pass
             else: 
                 if args.input_type == 'images': 
                     img1_np = cv2.imread(frames[i+1], mode='RGB')
@@ -271,27 +275,25 @@ for n in range(start+1, num_n):
             frame.save(p.stdin, 'JPEG')
     p.stdin.close()
     p.wait()
-    
+    last+=round(args.segment_l*fps_o)
     lines = open(output+'.txt', 'r').readlines()
-    lines[-1] = str(last)
+    lines[-1] = str(nn)
     open(output+'.txt', 'w').writelines(lines)
-    last+=round(args.segment_l*fps_o)+1
-    frames_count = last + round(args.segment_l * fps_o) 
+    
     
 if args.gpu_decode:
     decode_pipe.stdout.close()
     decode_pipe.wait()
-
     
 if not args.no_segments:
-    last_segment = int(open(output+'.txt', 'r').readlines()[-1])
+    n = int(open(output+'.txt', 'r').readlines()[-1])
     a = ''
-    for i in range(0, last_segment+round(args.segment_l*fps_o), round(args.segment_l*fps_o)):
+    for i in range(0, num_n):#last_segment+round(args.segment_l*fps_o), round(args.segment_l*fps_o)):
         a+= f"file '{output+str(i)+output[-4:]}'\n"
     with open('vidlist.txt', 'w')as vl:
         vl.write(a)
     os.system(f'ffmpeg -y -hide_banner -f concat -safe 0 -i vidlist.txt -c copy {output}')
-    for i in range(0, last_segment+round(args.segment_l*fps_o), round(args.segment_l*fps_o)):
+    for i in range(0, num_n):
         os.remove(f'{output+str(i)+output[-4:]}')
 else:
     os.rename(output+'0'+output[-4:], output)
