@@ -176,10 +176,7 @@ with torch.no_grad():
 norm_path = os.path.normpath(os.path.abspath(norm_path))
 
 output = os.path.normpath(os.path.abspath(output))
-i = 0
-while os.path.isfile(output):
-    output = f'{output[:-4]}_{i}{output[-4:]}'
-    i+=1
+
     
 if args.input_type == 'images': 
     w, h = frame[0].shape[0], frame[0].shape[1]
@@ -308,8 +305,10 @@ else:
 os.system(f'ffmpeg -y -hide_banner  -v error -i "{output}" -i "{audio}" -c copy "{output}+audio.mp4"')
 
 i = 0
-
-os.rename(f'{output}+audio.mp4', f'{output}')
+while os.path.isfile(output):
+    output_f = f'{output[:-4]}_{i}{output[-4:]}'
+    i+=1
+os.rename(f'{output}+audio.mp4', f'{output_f}')
 os.remove(f'{output}')
 os.remove(f'{vidlist}')
 os.remove(f'{audio}')
