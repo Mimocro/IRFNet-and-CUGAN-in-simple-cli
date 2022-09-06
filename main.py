@@ -22,11 +22,12 @@ def CUGAN(images, scale, upscaler):
             images[i] = cv2.cvtColor(upscaler(cv2.cvtColor(np.array(images[i], dtype='uint8'), cv2.COLOR_RGB2BGR), args.upscale_tile, 1, 1), cv2.COLOR_BGR2RGB)  #[:, :, ::-1].copy() #[:, :, ::-1].copy() #input are brg, and then make it rgb back
     return images
 
+#need to skip frames because its a stream
 def skip_gpu_frames(decode_pipe, n_frames):
     for i in range(n_frames):
         _ = decode_pipe.stdout.read(w*h*3)
     
-#thats fine
+#thats really fine
 last_i = None
 last_raw_frame = None
 def read_gpu(decode_pipe, i, w, h):
@@ -51,7 +52,6 @@ def read_frame(cap, n):
     res, frame = cap.read()
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) #frame[:,:,::-1].copy() #makes brg2rgb
     return frame #in rgb
-
 
 def v_info(cap):
     #cap = cv2.VideoCapture(filename)
@@ -193,9 +193,9 @@ else:
     fps = args.fps_multip * fps_o if 'interpolate' in args.mode else fps_o
     
 ffcmd = f'ffmpeg -hide_banner -v error -stats -y -f image2pipe -vcodec mjpeg -framerate {fps} -i - -c:v hevc_nvenc -rc vbr -cq 16 -preset slow -pix_fmt p010le -profile:v main10 -r {fps}' if args.gpu_encode else f'ffmpeg -hide_banner -v error -stats -y -f image2pipe -framerate {fps} -vcodec mjpeg -i - -c:v libx265 -crf 16 -preset slow -pix_fmt yuv420p10le -profile:v main10 -r {fps}'
-num_n =  ceil((frames_count/fps_o) / args.segment_l) if not args.no_segments else 1
+num_n =  ceil(round(frames_count/fps_o) / args.segment_l) if not args.no_segments else 1
 start = n if args.c != None else 0
-last = round(n * args.segment_l * fps_o)
+last = round(start * args.segment_l * fps_o)
 
 if start > 0 and args.gpu_decode:
     skip_gpu_frames(decode_pipe, last)
@@ -215,19 +215,15 @@ if frames_count_o < args.segment_l*fps_o or args.no_segments:
     frames_count = frames_count_o
     
 for nn in range(start, num_n):
-    #print(fr'{output+str(start)+output[-4:]}')
     p = Popen(ffcmd.split(' ') + [output+str(nn)+output[-4:]], stdin=PIPE)
-    if frames_count_o - (args.segment_l*fps_o*nn) < args.segment_l*fps_o or last > frames_count_o:
-        frames_count = frames_count_o #last + round(frames_count_o - (args.segment_l*fps_o*n)) #last segment wrong processing
-    else:
-        frames_count = round(args.segment_l * fps_o) +last
+    frames_count = frames_count_o if frames_count_o - (args.segment_l*fps_o*nn) <= args.segment_l*fps_o or last > frames_count_o else round(args.segment_l * fps_o) +last
     if not args.no_segments:  print(f'Processing {nn+1} segment of {num_n}')
-    print(frames_count, last)
     for i in range(last, frames_count):
         if not running.is_set():
             print(f'Paused, press "{hotkey}" to continue')
             running.wait()
             print(f'Continued, press "{hotkey}" to pause')
+            
         if args.input_type == 'images': 
             img0_np = cv2.imread(frames[i], mode='RGB')
         else: 
@@ -242,9 +238,11 @@ for nn in range(start, num_n):
 
         if 'upscale' in args.mode and args.mode[:7] == 'upscale':
             img0_np = CUGAN([img0_np], clear_scale, upscaler)[0]
+            
         if 'interpolate' not in args.mode:
             ims.append(Image.fromarray(img0_np))
         else:
+            #print(i, i+1 > frames_count-1, '\n')
             if i+1 > frames_count-1:
                 if 'upscale' in args.mode: Image.fromarray(CUGAN[img0_np]).save(p.stdin, 'JPEG')
                 else: Image.fromarray(img0_np).save(p.stdin, 'JPEG')
@@ -275,11 +273,11 @@ for nn in range(start, num_n):
             frame.save(p.stdin, 'JPEG')
     p.stdin.close()
     p.wait()
+    
     last+=round(args.segment_l*fps_o)
     lines = open(output+'.txt', 'r').readlines()
     lines[-1] = str(nn)
     open(output+'.txt', 'w').writelines(lines)
-    
     
 if args.gpu_decode:
     decode_pipe.stdout.close()
@@ -290,9 +288,10 @@ if not args.no_segments:
     a = ''
     for i in range(0, num_n):#last_segment+round(args.segment_l*fps_o), round(args.segment_l*fps_o)):
         a+= f"file '{output+str(i)+output[-4:]}'\n"
-    with open('vidlist.txt', 'w')as vl:
+    vidlist = os.path.join(output, os.pardir) + '\\vidlist.txt'
+    with open(vidlist, 'w')as vl:
         vl.write(a)
-    os.system(f'ffmpeg -y -hide_banner -f concat -safe 0 -i vidlist.txt -c copy {output}')
+    os.system(f'ffmpeg -y -hide_banner  -v error -f concat -safe 0 -i vidlist.txt -c copy {output}')
     for i in range(0, num_n):
         os.remove(f'{output+str(i)+output[-4:]}')
 else:
@@ -300,11 +299,15 @@ else:
     
 if args.input_type == 'video':
   audio = f'{output}_audio.mp4'
-  os.system(f'ffmpeg -y -hide_banner -i "{norm_path}" -vn -c copy -map 0:a "{audio}"')
+  os.system(f'ffmpeg -y -hide_banner  -v error -i "{norm_path}" -vn -c copy -map 0:a "{audio}"')
 else:
     audio = None
-os.system(f'ffmpeg -y -hide_banner -i "{output}" -i "{audio}" -c copy "{output}+audio.mp4"')
+os.system(f'ffmpeg -y -hide_banner  -v error -i "{output}" -i "{audio}" -c copy "{output}+audio.mp4"')
+
+i = 0
+while os.path.isfile(output):
+    output = f'{output[:-4]}_{i}{output[-4:]}'
 os.rename(f'{output}+audio.mp4', f'{output}')
 os.remove(f'{output}')
+os.remove(f'{vidlist}')
 os.remove(f'{audio}')
-
