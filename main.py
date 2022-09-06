@@ -176,8 +176,10 @@ with torch.no_grad():
 norm_path = os.path.normpath(os.path.abspath(norm_path))
 
 output = os.path.normpath(os.path.abspath(output))
+i = 0
 while os.path.isfile(output):
     output = f'{output[:-4]}_{i}{output[-4:]}'
+    i+=1
     
 if args.input_type == 'images': 
     w, h = frame[0].shape[0], frame[0].shape[1]
