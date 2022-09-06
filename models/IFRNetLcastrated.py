@@ -68,20 +68,20 @@ class Encoder(nn.Module):
     def __init__(self):
         super(Encoder, self).__init__()
         self.pyramid1 = nn.Sequential(
-            convrelu(3, 32, 3, 2, 1), 
-            convrelu(32, 32, 3, 1, 1)
+            convrelu(3, 64, 7, 2, 3), 
+            convrelu(64, 64, 3, 1, 1)
         )
         self.pyramid2 = nn.Sequential(
-            convrelu(32, 48, 3, 2, 1), 
-            convrelu(48, 48, 3, 1, 1)
+            convrelu(64, 96, 3, 2, 1), 
+            convrelu(96, 96, 3, 1, 1)
         )
         self.pyramid3 = nn.Sequential(
-            convrelu(48, 72, 3, 2, 1), 
-            convrelu(72, 72, 3, 1, 1)
+            convrelu(96, 144, 3, 2, 1), 
+            convrelu(144, 144, 3, 1, 1)
         )
         self.pyramid4 = nn.Sequential(
-            convrelu(72, 96, 3, 2, 1), 
-            convrelu(96, 96, 3, 1, 1)
+            convrelu(144, 192, 3, 2, 1), 
+            convrelu(192, 192, 3, 1, 1)
         )
         
     def forward(self, img):
@@ -96,9 +96,9 @@ class Decoder4(nn.Module):
     def __init__(self):
         super(Decoder4, self).__init__()
         self.convblock = nn.Sequential(
-            convrelu(192+1, 192), 
-            ResBlock(192, 32), 
-            nn.ConvTranspose2d(192, 76, 4, 2, 1, bias=True)
+            convrelu(384+1, 384), 
+            ResBlock(384, 64), 
+            nn.ConvTranspose2d(384, 148, 4, 2, 1, bias=True)
         )
         
     def forward(self, f0, f1, embt):
@@ -113,9 +113,9 @@ class Decoder3(nn.Module):
     def __init__(self):
         super(Decoder3, self).__init__()
         self.convblock = nn.Sequential(
-            convrelu(220, 216), 
-            ResBlock(216, 32), 
-            nn.ConvTranspose2d(216, 52, 4, 2, 1, bias=True)
+            convrelu(436, 432), 
+            ResBlock(432, 64), 
+            nn.ConvTranspose2d(432, 100, 4, 2, 1, bias=True)
         )
 
     def forward(self, ft_, f0, f1, up_flow0, up_flow1):
@@ -130,9 +130,9 @@ class Decoder2(nn.Module):
     def __init__(self):
         super(Decoder2, self).__init__()
         self.convblock = nn.Sequential(
-            convrelu(148, 144), 
-            ResBlock(144, 32), 
-            nn.ConvTranspose2d(144, 36, 4, 2, 1, bias=True)
+            convrelu(292, 288), 
+            ResBlock(288, 64), 
+            nn.ConvTranspose2d(288, 68, 4, 2, 1, bias=True)
         )
 
     def forward(self, ft_, f0, f1, up_flow0, up_flow1):
@@ -147,9 +147,9 @@ class Decoder1(nn.Module):
     def __init__(self):
         super(Decoder1, self).__init__()
         self.convblock = nn.Sequential(
-            convrelu(100, 96), 
-            ResBlock(96, 32), 
-            nn.ConvTranspose2d(96, 8, 4, 2, 1, bias=True)
+            convrelu(196, 192), 
+            ResBlock(192, 64), 
+            nn.ConvTranspose2d(192, 8, 4, 2, 1, bias=True)
         )
         
     def forward(self, ft_, f0, f1, up_flow0, up_flow1):
@@ -170,7 +170,7 @@ class Model(nn.Module):
         self.decoder1 = Decoder1()
 
 
-        
+
     def inference(self, img0, img1, embt, scale_factor=1.0):
         mean_ = torch.cat([img0, img1], 2).mean(1, keepdim=True).mean(2, keepdim=True).mean(3, keepdim=True)
         img0 = img0 - mean_
