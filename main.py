@@ -305,6 +305,7 @@ else:
 os.system(f'ffmpeg -y -hide_banner  -v error -i "{output}" -i "{audio}" -c copy "{output}+audio.mp4"')
 
 i = 0
+output_f = output
 while os.path.isfile(output_f):
     output_f = f'{output[:-4]}_{i}{output[-4:]}'
     i+=1
