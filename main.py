@@ -305,10 +305,10 @@ else:
 os.system(f'ffmpeg -y -hide_banner  -v error -i "{output}" -i "{audio}" -c copy "{output}+audio.mp4"')
 
 i = 0
-while os.path.isfile(output):
+while os.path.isfile(output_f):
     output_f = f'{output[:-4]}_{i}{output[-4:]}'
     i+=1
 os.rename(f'{output}+audio.mp4', f'{output_f}')
-os.remove(f'{output}')
+#os.remove(f'{output}')
 os.remove(f'{vidlist}')
 os.remove(f'{audio}')
