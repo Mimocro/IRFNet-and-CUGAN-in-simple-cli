@@ -306,7 +306,7 @@ if not args.no_segments:
         os.remove(f'{output+str(i)+output[-4:]}')
 
 if args.input_type == 'video':
-  if has_audio(output):
+  if has_audio(output) > 1:
       audio = f'{output}_audio.mp4'
       os.system(f'ffmpeg -y -hide_banner  -v error -i "{norm_path}" -vn -c copy -map 0:a "{audio}"')
       os.system(f'ffmpeg -y -hide_banner  -v error -i "{output}" -i "{audio}" -c copy "{output}+audio.mp4"')
