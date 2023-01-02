@@ -93,6 +93,14 @@ def handle_key_event(event):
         else:
             running.set()
 
+#https://stackoverflow.com/questions/64248933/how-to-check-if-a-video-has-sound-in-python
+def has_audio(filename):
+    result = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
+                             "format=nb_streams", "-of",
+                             "default=noprint_wrappers=1:nokey=1", filename],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT)
+    return (int(result.stdout) -1)
 
 
 parser = argparse.ArgumentParser()
@@ -215,7 +223,7 @@ if frames_count_o < args.segment_l*fps_o or args.no_segments:
     frames_count = frames_count_o
     
 for nn in range(start, num_n):
-    p = Popen(ffcmd.split(' ') + [output+str(nn)+output[-4:]], stdin=PIPE)
+    p = Popen(ffcmd.split(' ') + [output+str(nn)+output[-4:]], stdin=PIPE) if not args.no_segments else Popen(ffcmd.split(' ') + output, stdin=PIPE)
     frames_count = frames_count_o if frames_count_o - (args.segment_l*fps_o*nn) <= args.segment_l*fps_o or last > frames_count_o else round(args.segment_l * fps_o) +last
     if not args.no_segments:  print(f'Processing {nn+1} segment of {num_n}')
     for i in range(last, frames_count):
@@ -294,21 +302,22 @@ if not args.no_segments:
     os.system(f'ffmpeg -y -hide_banner  -v error -f concat -safe 0 -i vidlist.txt -c copy {output}')
     for i in range(0, num_n):
         os.remove(f'{output+str(i)+output[-4:]}')
-else:
-    os.rename(output+'0'+output[-4:], output)
-    
+
 if args.input_type == 'video':
-  audio = f'{output}_audio.mp4'
-  os.system(f'ffmpeg -y -hide_banner  -v error -i "{norm_path}" -vn -c copy -map 0:a "{audio}"')
+  if has_audio(output):
+      audio = f'{output}_audio.mp4'
+      os.system(f'ffmpeg -y -hide_banner  -v error -i "{norm_path}" -vn -c copy -map 0:a "{audio}"')
+      os.system(f'ffmpeg -y -hide_banner  -v error -i "{output}" -i "{audio}" -c copy "{output}+audio.mp4"')
 else:
     audio = None
-os.system(f'ffmpeg -y -hide_banner  -v error -i "{output}" -i "{audio}" -c copy "{output}+audio.mp4"')
+
 
 i = 0
 output_f = output
-while os.path.isfile(output_f):
-    output_f = f'{output[:-4]}_{i}{output[-4:]}'
-    i+=1
+if not args.no_segments:
+    while os.path.isfile(output_f):
+        output_f = f'{output[:-4]}_{i}{output[-4:]}'
+        i+=1
 os.rename(f'{output}+audio.mp4', f'{output_f}')
 #os.remove(f'{output}')
 os.remove(f'{vidlist}')
