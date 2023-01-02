@@ -1,4 +1,4 @@
-import os, argparse, glob, gc
+import os, argparse, glob, gc, re, subprocess
 #os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"]="video_codec;hevc_nvenc"
 import cv2
 import numpy as np
@@ -193,9 +193,11 @@ if args.input_type == 'images':
     frames = [file for file in glob.glob('{0}\\*.{1}'.format("\\".join(norm_path.split("\\")), args.images_ext))]
     frames_count = len(frames) 
 else:
+    
     cap_video = cv2.VideoCapture(norm_path)
-    if args.gpu_decode: 
-        decode_pipe = Popen(['ffmpeg', '-hide_banner' ,'-v', 'quiet', '-hwaccel', 'cuda', '-c:v', 'hevc_cuvid', '-i', norm_path, '-pix_fmt', 'bgr24', '-f', 'rawvideo', '-'], stdout=PIPE)
+    if args.gpu_decode:
+        codec = re.search(r"Video: (\w+)", subprocess.run(['ffmpeg', '-i', norm_path, '-hide_banner'], stdout=subprocess.PIPE, stderr=subprocess.PIPE).stderr.decode()).group(1)
+        decode_pipe = Popen(['ffmpeg', '-hide_banner' ,'-v', 'quiet', '-hwaccel', 'cuda', '-c:v', f'{codec}_cuvid', '-i', norm_path, '-pix_fmt', 'bgr24', '-f', 'rawvideo', '-'], stdout=PIPE)
     w, h = read_frame(cap_video, 0).shape[0], read_frame(cap_video, 0).shape[1]
     fps_o, frames_count = v_info(cap_video)
     fps = args.fps_multip * fps_o if 'interpolate' in args.mode else fps_o
@@ -223,7 +225,7 @@ if frames_count_o < args.segment_l*fps_o or args.no_segments:
     frames_count = frames_count_o
     
 for nn in range(start, num_n):
-    p = Popen(ffcmd.split(' ') + [output+str(nn)+output[-4:]], stdin=PIPE) if not args.no_segments else Popen(ffcmd.split(' ') + output, stdin=PIPE)
+    p = Popen(ffcmd.split(' ') + [output+str(nn)+output[-4:]], stdin=PIPE) if not args.no_segments else Popen(ffcmd.split(' ') + [output], stdin=PIPE)
     frames_count = frames_count_o if frames_count_o - (args.segment_l*fps_o*nn) <= args.segment_l*fps_o or last > frames_count_o else round(args.segment_l * fps_o) +last
     if not args.no_segments:  print(f'Processing {nn+1} segment of {num_n}')
     for i in range(last, frames_count):
